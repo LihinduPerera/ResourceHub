@@ -1,7 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// ResourceHub — Prisma schema
+// Docs: https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client"
@@ -12,53 +10,149 @@ datasource db {
   provider = "postgresql"
 }
 
-model User {
-  id           Int           @id @default(autoincrement())
-  name         String        @db.VarChar(100)
-  email        String        @unique @db.VarChar(255)
-  createdAt    DateTime      @default(now())
-  reservations Reservation[]
+/* -------------------------------------------------------------------------- */
+/* Enums                                                                      */
+/* -------------------------------------------------------------------------- */
 
-  @@map("users")
+enum UserRole {
+  ADMIN
+  MEMBER
 }
 
-model Resource {
-  id           Int           @id @default(autoincrement())
-  name         String        @db.VarChar(150)
-  type         String        @db.VarChar(50)
-  location     String        @db.VarChar(255)
-  capacity     Int
-  isActive     Boolean       @default(true)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  reservations Reservation[]
-
-  @@index([isActive, name])
-  @@map("resources")
-}
-
-model Reservation {
-  id         Int               @id @default(autoincrement())
-  userId     Int
-  resourceId Int
-  title      String            @db.VarChar(200)
-  startTime  DateTime          @db.Timestamptz(3)
-  endTime    DateTime          @db.Timestamptz(3)
-  status     ReservationStatus @default(PENDING)
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
-
-  user     User     @relation(fields: [userId], references: [id], onDelete: Restrict)
-  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Restrict)
-
-  @@index([resourceId, startTime])
-  @@index([userId, createdAt])
-  @@index([resourceId, status, startTime])
-  @@map("reservations")
+enum ResourceType {
+  MEETING_ROOM
+  CONFERENCE_ROOM
+  TRAINING_ROOM
+  WORKSPACE
+  EQUIPMENT
+  VEHICLE
+  OTHER
 }
 
 enum ReservationStatus {
   PENDING
   CONFIRMED
+  REJECTED
   CANCELLED
+}
+
+/* -------------------------------------------------------------------------- */
+/* Auth (Better Auth)                                                         */
+/*                                                                            */
+/* These models follow the shape required by the Better Auth Prisma adapter.   */
+/* -------------------------------------------------------------------------- */
+
+model User {
+  id            String   @id
+  name          String   @db.VarChar(100)
+  email         String   @unique @db.VarChar(255)
+  emailVerified Boolean  @default(false)
+  image         String?
+  role          UserRole @default(MEMBER)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions     Session[]
+  accounts     Account[]
+  reservations Reservation[]
+  decisions    Reservation[] @relation("ReservationDecisions")
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verifications")
+}
+
+/* -------------------------------------------------------------------------- */
+/* Domain                                                                     */
+/* -------------------------------------------------------------------------- */
+
+model Resource {
+  id           String       @id @default(cuid())
+  name         String       @db.VarChar(150)
+  type         ResourceType
+  location     String       @db.VarChar(255)
+  capacity     Int
+  description  String?      @db.VarChar(1000)
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  reservations Reservation[]
+
+  @@index([isActive, name])
+  @@index([type])
+  @@map("resources")
+}
+
+model Reservation {
+  id          String            @id @default(cuid())
+  userId      String
+  resourceId  String
+  title       String            @db.VarChar(200)
+  notes       String?           @db.VarChar(1000)
+  startTime   DateTime          @db.Timestamptz(3)
+  endTime     DateTime          @db.Timestamptz(3)
+  status      ReservationStatus @default(PENDING)
+  rejectionReason String?        @db.VarChar(500)
+  decidedAt   DateTime?
+  decidedById String?
+  cancelledAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  resource  Resource @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+  decidedBy User?    @relation("ReservationDecisions", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([resourceId, startTime])
+  @@index([userId, createdAt])
+  @@index([resourceId, status, startTime])
+  @@index([status, startTime])
+  @@map("reservations")
 }
