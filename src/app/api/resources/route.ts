@@ -1,75 +1,53 @@
+import { NextRequest } from "next/server";
+import { withRoute, readJsonBody } from "@/lib/api/route";
+import { created, formatZodIssues, ok } from "@/lib/api/response";
+import { validationError } from "@/lib/api/errors";
+import { requireAdmin, requireUser } from "@/lib/auth";
+import {
+  createResourceSchema,
+  listResourcesQuerySchema,
+} from "@/lib/validations";
+import { createResource, listResources } from "@/lib/services/resource";
 
-import { NextRequest, NextResponse } from "next/server";
-import { ZodError } from "zod";
-import { prisma } from "@/lib/prisma";
-import { createResourceSchema } from "@/lib/validations/resource";
+export const GET = withRoute(async (request: NextRequest) => {
+  const actor = await requireUser(request.headers);
 
-export async function GET() {
-  try {
-    const resources = await prisma.resource.findMany({
-      orderBy: [
-        { isActive: "desc" },
-        { name: "asc" },
-      ],
-    });
+  const query = listResourcesQuerySchema.safeParse(
+    Object.fromEntries(request.nextUrl.searchParams),
+  );
 
-    return NextResponse.json({ data: resources });
-  } catch (error) {
-    console.error("Failed to fetch resources:", error);
-
-    return NextResponse.json(
-      { error: "Unable to retrieve resources." },
-      { status: 500 },
-    );
+  if (!query.success) {
+    throw validationError(formatZodIssues(query.error));
   }
-}
 
-export async function POST(request: NextRequest) {
-  try {
-    const body: unknown = await request.json();
-    const validation = createResourceSchema.safeParse(body);
+  const result = await listResources({
+    page: query.data.page,
+    pageSize: query.data.pageSize,
+    search: query.data.search,
+    type: query.data.type,
+    includeInactive:
+      actor.role === "ADMIN" && query.data.includeInactive === "true",
+  });
 
-    if (!validation.success) {
-      return NextResponse.json(
-        {
-          error: "Validation failed.",
-          details: validation.error.issues.map((issue) => ({
-            field: issue.path.join("."),
-            message: issue.message,
-          })),
-        },
-        { status: 400 },
-      );
-    }
+  return ok(result.data, {
+    total: result.total,
+    page: result.page,
+    pageSize: result.pageSize,
+    pageCount: result.pageCount,
+  });
+});
 
-    const resource = await prisma.resource.create({
-      data: validation.data,
-    });
+export const POST = withRoute(async (request: NextRequest) => {
+  await requireAdmin(request.headers);
 
-    return NextResponse.json(
-      { data: resource },
-      { status: 201 },
-    );
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      return NextResponse.json(
-        { error: "Request body must contain valid JSON." },
-        { status: 400 },
-      );
-    }
+  const body = await readJsonBody(request);
 
-    if (error instanceof ZodError) {
-      return NextResponse.json(
-        { error: "Invalid request body." },
-        { status: 400 },
-      );
-    }
-
-    console.error("Failed to create resource:", error);
-
-    return NextResponse.json(
-      { error: "Unable to create resource." },
-      { status: 500 },
-    );
+  const validation = createResourceSchema.safeParse(body);
+  if (!validation.success) {
+    throw validationError(formatZodIssues(validation.error));
   }
-}
+
+  const resource = await createResource(validation.data);
+
+  return created(resource);
+});

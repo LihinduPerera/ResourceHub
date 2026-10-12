@@ -1,0 +1,18 @@
+# dependencies / build output
+node_modules
+.next
+out
+build
+coverage
+
+# generated code
+src/generated
+
+# lockfiles
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# misc
+*.tsbuildinfo
+next-env.d.ts

@@ -1,0 +1,130 @@
+// ResourceHub — Entity Relationship Diagram (DBML)
+//
+// How to get a *shareable link* for the assessment submission:
+//   1. Open https://dbdiagram.io/d
+//   2. Paste this entire file into the left editor.
+//   3. Click "Share" (top-right) and copy the public URL.
+//
+// This DBML mirrors prisma/schema.prisma.
+
+Enum UserRole {
+  ADMIN
+  MEMBER
+}
+
+Enum ResourceType {
+  MEETING_ROOM
+  CONFERENCE_ROOM
+  TRAINING_ROOM
+  WORKSPACE
+  EQUIPMENT
+  VEHICLE
+  OTHER
+}
+
+Enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  CANCELLED
+}
+
+Table users {
+  id            varchar   [pk]
+  name          varchar(100)
+  email         varchar(255) [unique]
+  emailVerified boolean   [default: false]
+  image         varchar   [null]
+  role          UserRole  [default: 'MEMBER']
+  createdAt     timestamp [default: `now()`]
+  updatedAt     timestamp
+}
+
+Table sessions {
+  id        varchar  [pk]
+  expiresAt timestamp
+  token     varchar  [unique]
+  ipAddress varchar  [null]
+  userAgent varchar  [null]
+  userId    varchar
+  createdAt timestamp [default: `now()`]
+  updatedAt timestamp
+
+  indexes {
+    userId
+  }
+}
+
+Table accounts {
+  id           varchar [pk]
+  accountId    varchar
+  providerId   varchar
+  userId       varchar
+  password     varchar [null]
+  createdAt    timestamp [default: `now()`]
+  updatedAt    timestamp
+
+  indexes {
+    userId
+  }
+}
+
+Table verifications {
+  id         varchar [pk]
+  identifier varchar
+  value      varchar
+  expiresAt  timestamp
+  createdAt  timestamp [default: `now()`]
+  updatedAt  timestamp
+
+  indexes {
+    identifier
+  }
+}
+
+Table resources {
+  id          varchar [pk]
+  name        varchar(150)
+  type        ResourceType
+  location    varchar(255)
+  capacity    integer
+  description varchar(1000) [null]
+  isActive    boolean [default: true]
+  createdAt   timestamp [default: `now()`]
+  updatedAt   timestamp
+
+  indexes {
+    (isActive, name)
+    type
+  }
+}
+
+Table reservations {
+  id              varchar [pk]
+  userId          varchar
+  resourceId      varchar
+  title           varchar(200)
+  notes           varchar(1000) [null]
+  startTime       timestamptz(3)
+  endTime         timestamptz(3)
+  status          ReservationStatus [default: 'PENDING']
+  rejectionReason varchar(500) [null]
+  decidedAt       timestamp [null]
+  decidedById     varchar [null]
+  cancelledAt     timestamp [null]
+  createdAt       timestamp [default: `now()`]
+  updatedAt       timestamp
+
+  indexes {
+    (resourceId, startTime)
+    (userId, createdAt)
+    (resourceId, status, startTime)
+    (status, startTime)
+  }
+}
+
+Ref: sessions.userId > users.id
+Ref: accounts.userId > users.id
+Ref: reservations.userId > users.id
+Ref: reservations.resourceId > resources.id
+Ref: reservations.decidedById > users.id
