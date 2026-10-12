@@ -1,124 +1,69 @@
+import { NextRequest } from "next/server";
+import { withRoute, readJsonBody } from "@/lib/api/route";
+import { badRequest, notFound, validationError } from "@/lib/api/errors";
+import { formatZodIssues, ok } from "@/lib/api/response";
+import { requireAdmin, requireUser } from "@/lib/auth";
+import { parseId } from "@/lib/utils/id";
+import { updateResourceSchema } from "@/lib/validations";
+import {
+  getResource,
+  setResourceActive,
+  updateResource,
+} from "@/lib/services/resource";
 
-import { NextResponse } from "next/server";
-import { Prisma } from "@/generated/prisma/client";
-import { prisma } from "@/lib/prisma";
-import { updateResourceSchema } from "@/lib/validations/resource";
+export const GET = withRoute(
+  async (
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> },
+  ) => {
+    const id = parseId((await params).id);
+    if (!id) throw badRequest("Invalid resource ID.", "INVALID_ID");
 
-type RouteContext = {
-  params: Promise<{ id: string }>;
-};
+    await requireUser(request.headers);
 
-function parseResourceId(value: string): number | null {
-  if (!/^[1-9]\d*$/.test(value)) {
-    return null;
-  }
+    const resource = await getResource(id);
+    if (!resource) throw notFound("Resource not found.");
 
-  const id = Number(value);
+    return ok(resource);
+  },
+);
 
-  return Number.isSafeInteger(id) ? id : null;
-}
+export const PATCH = withRoute(
+  async (
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> },
+  ) => {
+    const id = parseId((await params).id);
+    if (!id) throw badRequest("Invalid resource ID.", "INVALID_ID");
 
-export async function PATCH(
-  request: Request,
-  { params }: RouteContext,
-) {
-  const { id: rawId } = await params;
-  const id = parseResourceId(rawId);
+    await requireAdmin(request.headers);
 
-  if (id === null) {
-    return NextResponse.json(
-      { error: "Invalid resource ID." },
-      { status: 400 },
-    );
-  }
+    const body = await readJsonBody(request);
 
-  try {
-    const body: unknown = await request.json();
     const validation = updateResourceSchema.safeParse(body);
-
     if (!validation.success) {
-      return NextResponse.json(
-        {
-          error: "Validation failed.",
-          details: validation.error.issues.map((issue) => ({
-            field: issue.path.join("."),
-            message: issue.message,
-          })),
-        },
-        { status: 400 },
-      );
+      throw validationError(formatZodIssues(validation.error));
     }
 
-    const resource = await prisma.resource.update({
-      where: { id },
-      data: validation.data,
-    });
+    const resource = await updateResource(id, validation.data);
 
-    return NextResponse.json({ data: resource });
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      return NextResponse.json(
-        { error: "Request body must contain valid JSON." },
-        { status: 400 },
-      );
-    }
+    return ok(resource);
+  },
+);
 
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2025"
-    ) {
-      return NextResponse.json(
-        { error: "Resource not found." },
-        { status: 404 },
-      );
-    }
+export const DELETE = withRoute(
+  async (
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> },
+  ) => {
+    const id = parseId((await params).id);
+    if (!id) throw badRequest("Invalid resource ID.", "INVALID_ID");
 
-    console.error("Failed to update resource:", error);
+    await requireAdmin(request.headers);
 
-    return NextResponse.json(
-      { error: "Unable to update resource." },
-      { status: 500 },
-    );
-  }
-}
+    // Soft delete: resources keep history, inactive resources cannot be booked.
+    const resource = await setResourceActive(id, false);
 
-export async function DELETE(
-  _request: Request,
-  { params }: RouteContext,
-) {
-  const { id: rawId } = await params;
-  const id = parseResourceId(rawId);
-
-  if (id === null) {
-    return NextResponse.json(
-      { error: "Invalid resource ID." },
-      { status: 400 },
-    );
-  }
-
-  try {
-    const resource = await prisma.resource.update({
-      where: { id },
-      data: { isActive: false },
-    });
-
-    return NextResponse.json({ data: resource });
-  } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2025"
-    ) {
-      return NextResponse.json(
-        { error: "Resource not found." },
-        { status: 404 },
-      );
-    }
-
-    console.error("Failed to deactivate resource:", error);
-
-    return NextResponse.json(
-      { error: "Unable to deactivate resource." },
-      { status: 500 },
-    );
-  }
-}
+    return ok(resource);
+  },
+);
