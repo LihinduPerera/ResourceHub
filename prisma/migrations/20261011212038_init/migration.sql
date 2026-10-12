@@ -57,3 +57,22 @@ ALTER TABLE "reservations" ADD CONSTRAINT "reservations_userId_fkey" FOREIGN KEY
 
 -- AddForeignKey
 ALTER TABLE "reservations" ADD CONSTRAINT "reservations_resourceId_fkey" FOREIGN KEY ("resourceId") REFERENCES "resources"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+
+-- Enable GiST equality support for integer resource IDs.
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+-- A reservation must end after it starts.
+ALTER TABLE "reservations"
+ADD CONSTRAINT "reservations_valid_time_check"
+CHECK ("endTime" > "startTime");
+
+-- A resource cannot have overlapping active reservations.
+ALTER TABLE "reservations"
+ADD CONSTRAINT "reservations_no_overlapping_active_bookings"
+EXCLUDE USING GIST (
+    "resourceId" WITH =,
+    tstzrange("startTime", "endTime", '[)') WITH &&
+)
+WHERE ("status" IN ('PENDING', 'CONFIRMED'));
+
