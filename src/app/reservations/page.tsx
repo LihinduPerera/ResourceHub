@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import ReservationForm from "./ReservationForm";
+import ReservationActions from "./ReservationActions";
 
 function formatDateTime(date: Date) {
   return new Intl.DateTimeFormat("en-LK", {
@@ -173,6 +174,10 @@ async function ReservationsContent() {
                         </span>{" "}
                         {reservation.user.name} ({reservation.user.email})
                       </p>
+                      <ReservationActions
+                        reservationId={reservation.id}
+                        status={reservation.status}
+                        />
                     </div>
                   </article>
                 ))}
