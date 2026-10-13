@@ -42,17 +42,38 @@ async function NewReservationContent({
 
   const params = await searchParams;
   const resourceParam =
-    typeof params.resource === "string" ? params.resource : undefined;
+    typeof params.resource === "string" ? params.resource.trim() : undefined;
 
   // Only trust the preselected id when the resource actually exists and is active.
-  let initialResourceId: string | undefined;
+  // Fetch display fields too so the form can show the option even before (or
+  // independent of) the async resource list.
+  let initialResource:
+    | { id: string; name: string; type: string; location: string }
+    | undefined;
+  let preselectInvalid = false;
   if (resourceParam) {
     const resource = await prisma.resource.findUnique({
       where: { id: resourceParam },
-      select: { id: true, isActive: true },
+      select: { id: true, name: true, type: true, location: true, isActive: true },
     });
-    if (resource?.isActive) initialResourceId = resource.id;
+    if (resource?.isActive) {
+      initialResource = {
+        id: resource.id,
+        name: resource.name,
+        type: resource.type,
+        location: resource.location,
+      };
+    } else {
+      preselectInvalid = true;
+    }
   }
 
-  return <ReservationForm initialResourceId={initialResourceId} />;
+  return (
+    <ReservationForm
+      key={initialResource?.id ?? "none"}
+      initialResourceId={initialResource?.id}
+      initialResource={initialResource}
+      preselectInvalid={preselectInvalid}
+    />
+  );
 }

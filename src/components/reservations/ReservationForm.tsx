@@ -67,11 +67,19 @@ type ReservationFormValues = z.infer<typeof reservationFormSchema>;
 
 export function ReservationForm({
   initialResourceId,
+  initialResource,
+  preselectInvalid = false,
 }: {
   initialResourceId?: string;
+  initialResource?: ResourceOption;
+  preselectInvalid?: boolean;
 }) {
   const router = useRouter();
-  const [resources, setResources] = useState<ResourceOption[]>([]);
+  // Seed with the preselected option so the select renders it before the
+  // async list resolves (avoids a sync setState-in-effect).
+  const [resources, setResources] = useState<ResourceOption[]>(() =>
+    initialResource ? [initialResource] : [],
+  );
   const [resourcesLoading, setResourcesLoading] = useState(true);
   const [availabilityResult, setAvailabilityResult] = useState<{
     key: string;
@@ -100,10 +108,51 @@ export function ReservationForm({
 
   useEffect(() => {
     apiGet<ResourceOption[]>("/api/resources?pageSize=100")
-      .then((rows) => setResources(rows))
-      .catch(() => setResources([]))
+      .then((rows) => {
+        setResources((prev) => {
+          const merged = Array.isArray(rows) ? [...rows] : [];
+          // Guarantee the preselected option exists even if the list is
+          // paged, still loading, or the fetch otherwise omits it.
+          if (
+            initialResource &&
+            !merged.some((r) => r.id === initialResource.id)
+          ) {
+            merged.push(initialResource);
+          }
+          // Keep any previously known fallback (e.g. when rows omit it).
+          for (const item of prev) {
+            if (!merged.some((r) => r.id === item.id)) merged.push(item);
+          }
+          return merged;
+        });
+      })
+      .catch(() => {
+        // Fall back to just the preselected resource so the select still works.
+        setResources((prev) => {
+          if (
+            initialResource &&
+            !prev.some((r) => r.id === initialResource.id)
+          ) {
+            return [...prev, initialResource];
+          }
+          return prev;
+        });
+      })
       .finally(() => setResourcesLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Sync the preselected id into the form. `defaultValues` only applies on
+  // mount, so client-side navigation (Book A -> Book B) needs this to update
+  // the selection. Never clobber a user's manual pick: only apply when the
+  // field is empty or still holds the previous preselect.
+  useEffect(() => {
+    if (!initialResourceId) return;
+    const current = form.getValues("resourceId");
+    if (!current) {
+      form.setValue("resourceId", initialResourceId, { shouldValidate: true });
+    }
+  }, [initialResourceId, form]);
 
   // Reset the resource selection if the preselected resource vanished.
   useEffect(() => {
@@ -275,7 +324,11 @@ export function ReservationForm({
                       onValueChange={field.onChange}
                     >
                       <FormControl>
-                        <SelectTrigger disabled={resourcesLoading}>
+                        <SelectTrigger
+                          disabled={
+                            resourcesLoading && resources.length === 0
+                          }
+                        >
                           <SelectValue
                             placeholder={
                               resourcesLoading
@@ -372,6 +425,15 @@ export function ReservationForm({
                   </FormItem>
                 )}
               />
+
+              {preselectInvalid ? (
+                <Alert variant="destructive">
+                  <TriangleAlert />
+                  <AlertDescription>
+                    The linked resource is unavailable — please pick another.
+                  </AlertDescription>
+                </Alert>
+              ) : null}
 
               {durationProblem ? (
                 <Alert variant="destructive">
